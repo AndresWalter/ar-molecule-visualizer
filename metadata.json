@@ -1,0 +1,7 @@
+{
+  "name": "AR Molecule Visualizer",
+  "description": "An Augmented Reality application using MediaPipe and Three.js to visualize complex chemical molecules controlled by hand gestures.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
