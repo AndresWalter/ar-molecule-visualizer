@@ -4,7 +4,9 @@ import ARCanvas from './components/ARCanvas';
 import { MOLECULE_LIBRARY, ELEMENT_LIBRARY, ATOM_COLORS } from './constants';
 import { MoleculeStructure, HandOrientation, EducationLevel, AtomType } from './types';
 
-// Constantes de Cámara
+// ==========================================
+// CONFIGURACIÓN DE CÁMARA Y ESPACIO 3D
+// ==========================================
 const CAMERA_Z = 10;
 const FOV_ANGLE = 50;
 const WORLD_HEIGHT = 2 * CAMERA_Z * Math.tan((FOV_ANGLE * Math.PI) / 180 / 2);
@@ -12,12 +14,16 @@ const WORLD_HEIGHT = 2 * CAMERA_Z * Math.tan((FOV_ANGLE * Math.PI) / 180 / 2);
 const App: React.FC = () => {
     const videoRef = useRef<HTMLVideoElement>(null);
 
-    // --- ESTADOS DEL FLUJO UX (NUEVO) ---
-    const [hasStarted, setHasStarted] = useState(false); // Pantalla de bienvenida
-    const [tutorialDismissed, setTutorialDismissed] = useState(false); // Tutorial de mano inicial
-    const [permissionGranted, setPermissionGranted] = useState(false);
+    // ==========================================
+    // ESTADOS: FLUJO DE USUARIO
+    // ==========================================
+    const [hasStarted, setHasStarted] = useState(false); // Controla la pantalla de bienvenida
+    const [tutorialDismissed, setTutorialDismissed] = useState(false); // Controla el tutorial inicial de mano
+    const [permissionGranted, setPermissionGranted] = useState(false); // Estado de permisos de cámara
 
-    // --- ESTADOS DE LA APP (RESTAURADOS) ---
+    // ==========================================
+    // ESTADOS: LÓGICA DE LA APLICACIÓN
+    // ==========================================
     const [activeMolecule, setActiveMolecule] = useState<MoleculeStructure>(MOLECULE_LIBRARY[0]);
     const [category, setCategory] = useState<EducationLevel | 'all'>('primary');
     const [handData, setHandData] = useState<HandOrientation | null>(null);
@@ -25,32 +31,36 @@ const App: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [worldScale, setWorldScale] = useState({ x: 1, y: 1 });
 
-    // Configuración
+    // ==========================================
+    // ESTADOS: CONFIGURACIÓN
+    // ==========================================
     const [autoRotate, setAutoRotate] = useState(false);
     const [rotationSpeed, setRotationSpeed] = useState(20);
 
-    // Interfaz UI
+    // ==========================================
+    // ESTADOS: INTERFAZ DE USUARIO (UI)
+    // ==========================================
     const [uiVisible, setUiVisible] = useState(true);
     const [showConfig, setShowConfig] = useState(false);
     const [userNotes, setUserNotes] = useState('');
     const [pinNotes, setPinNotes] = useState(false);
-
-    // Personalización Visual
     const [showTopBar, setShowTopBar] = useState(true);
     const [showBottomBar, setShowBottomBar] = useState(true);
     const [showDescription, setShowDescription] = useState(true);
 
-    // --- MODO DESCANSO (NUEVO) ---
+    // ==========================================
+    // ESTADOS: MODO AHORRO DE ENERGÍA
+    // ==========================================
     const [isCameraSleeping, setIsCameraSleeping] = useState(false);
     const cameraInstanceRef = useRef<any>(null);
 
-    // Filtrado de Moléculas
+    // Filtrado de Moléculas según categoría y búsqueda
     const filteredMolecules = MOLECULE_LIBRARY.filter(m =>
         (category === 'all' || m.category === category) &&
         (m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.formula.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 
-    // Manejador de Redimensión
+    // Ajuste dinámico de escala del mundo basado en el tamaño de la ventana
     useEffect(() => {
         const updateScale = () => {
             const aspect = window.innerWidth / window.innerHeight;
@@ -61,26 +71,29 @@ const App: React.FC = () => {
         return () => window.removeEventListener('resize', updateScale);
     }, []);
 
-    // --- LÓGICA DE PROCESAMIENTO DE MANOS ---
+    // ==========================================
+    // LÓGICA CORE: PROCESAMIENTO DE MANOS (MEDIAPIPE)
+    // ==========================================
     const onResults = useCallback((results: any) => {
 
+        // Si no se detectan manos, limpiamos el estado
         if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
             setIsHandDetected(false);
             setHandData(null);
             return;
         }
 
-        // Lógica del Tutorial: Si detectamos mano y el tutorial sigue activo, lo quitamos
+        // Si detectamos mano por primera vez, ocultamos el tutorial
         setIsHandDetected(true);
         if (!tutorialDismissed) {
             setTutorialDismissed(true);
         }
 
-        // Mano 1: El Ancla (Index 0 en array, generalmente derecha si entra primero)
+        // --- MANO PRINCIPAL (Controla posición y rotación) ---
         const h1 = results.multiHandLandmarks[0];
 
-        // --- DETECCIÓN DE PINCH (AGARRE) ---
-        // Landmarks: 4 (Thumb tip) y 8 (Index tip)
+        // Detección de Gesto "Pinch" (Índice + Pulgar)
+        // Usamos los landmarks 4 (punta pulgar) y 8 (punta índice)
         const thumbTip = h1[4];
         const indexTip = h1[8];
         const pinchDist = Math.sqrt(
@@ -88,17 +101,19 @@ const App: React.FC = () => {
             Math.pow(thumbTip.y - indexTip.y, 2) +
             Math.pow(thumbTip.z - indexTip.z, 2)
         );
-        // Umbral experimental para "pinch" (ajustar según pruebas)
+        
+        // Umbral para considerar que hay un "agarre"
         const isPinched = pinchDist < 0.05;
 
-        // Posición Central (promedio de muñeca, índice y meñique para estabilidad)
+        // Cálculo del centro de la mano (promedio de muñeca, índice y meñique)
         const cx = (h1[0].x + h1[5].x + h1[17].x) / 3;
         const cy = (h1[0].y + h1[5].y + h1[17].y) / 3;
 
+        // Mapeo de coordenadas normalizadas (0-1) a coordenadas de mundo 3D
         const worldX = (0.5 - cx) * worldScale.x;
         const worldY = (0.5 - cy) * worldScale.y;
 
-        // Rotación
+        // Cálculo de Rotación (Quaternion) basado en la orientación de la mano
         const vWrist = new Vector3(h1[0].x, h1[0].y, h1[0].z);
         const vMiddle = new Vector3(h1[9].x, h1[9].y, h1[9].z);
         const vIndex = new Vector3(h1[5].x, h1[5].y, h1[5].z);
@@ -113,29 +128,32 @@ const App: React.FC = () => {
         const quaternion = new Quaternion();
         quaternion.setFromRotationMatrix(matrix);
 
-        // Lógica Dual Hand (Escalado/Rotación extra + PUNTERO)
+        // --- MANO SECUNDARIA (Control de Zoom, Rotación Extra e Interacción) ---
         let extraRotation = { x: 0, y: 0 };
         let extraScale = 1.0;
         let secondHandPointer = undefined;
 
         if (results.multiHandLandmarks.length > 1) {
             const h2 = results.multiHandLandmarks[1];
+            
+            // Centro de la segunda mano
             const h2cx = (h2[0].x + h2[5].x + h2[17].x) / 3;
             const h2cy = (h2[0].y + h2[5].y + h2[17].y) / 3;
 
-            // Calcular puntero de segunda mano para etiquetas (Dedo índice: landmark 8)
+            // Puntero para interacción (punta del índice)
             const pX = (0.5 - h2[8].x) * worldScale.x;
             const pY = (0.5 - h2[8].y) * worldScale.y;
-            // Z aproximado o 0
             secondHandPointer = { x: pX, y: pY, z: 0 };
 
+            // Diferencia entre ambas manos para rotación extra
             const dx = (h2cx - cx) * 2;
             const dy = (h2cy - cy) * 2;
 
-            const deadzone = 0.2;
+            const deadzone = 0.2; // Zona muerta para evitar movimientos involuntarios
             if (Math.abs(dx) > deadzone) extraRotation.y = (dx - (Math.sign(dx) * deadzone)) * 2;
             if (Math.abs(dy) > deadzone) extraRotation.x = (dy - (Math.sign(dy) * deadzone)) * 2;
 
+            // Distancia entre manos para Zoom
             const dist = Math.sqrt(Math.pow(h2cx - cx, 2) + Math.pow(h2cy - cy, 2));
             extraScale = Math.min(Math.max(dist * 3, 0.5), 2.5);
         }
@@ -151,11 +169,13 @@ const App: React.FC = () => {
 
     }, [worldScale, tutorialDismissed]);
 
-    // Inicializar MediaPipe solo cuando el usuario inicia
+    // ==========================================
+    // INICIALIZACIÓN DE MEDIAPIPE
+    // ==========================================
     useEffect(() => {
         if (!hasStarted) return;
 
-        // Si la cámara está en modo descanso, la detenemos y no inicializamos nada nuevo
+        // Gestión del modo descanso (detener cámara si está activo)
         if (isCameraSleeping) {
             if (cameraInstanceRef.current) {
                 cameraInstanceRef.current.stop();
@@ -170,7 +190,7 @@ const App: React.FC = () => {
             const Camera = (window as any).Camera;
 
             if (!Hands || !Camera) {
-                console.error("MediaPipe scripts not loaded");
+                console.error("Scripts de MediaPipe no cargados.");
                 return;
             }
 
@@ -182,13 +202,12 @@ const App: React.FC = () => {
 
             hands.setOptions({
                 maxNumHands: 2,
-                modelComplexity: 1, // REVERTIDO: Volvemos a 1 para debuggear rendimiento/compatibilidad
+                modelComplexity: 1, // 1: Balance entre velocidad y precisión. 2: Máxima precisión (más lento en móviles)
                 minDetectionConfidence: 0.5,
                 minTrackingConfidence: 0.5
             });
 
-            hands.onResults((results) => {
-                console.log("MediaPipe Results:", results.multiHandLandmarks?.length); // DEBUG LOG
+            hands.onResults((results: any) => {
                 onResults(results);
             });
 
@@ -207,7 +226,7 @@ const App: React.FC = () => {
                     .then(() => setPermissionGranted(true))
                     .catch(err => {
                         console.error(err);
-                        alert("Se requiere acceso a la cámara.");
+                        alert("Se requiere acceso a la cámara para la experiencia AR.");
                     });
             }
         };
@@ -221,11 +240,14 @@ const App: React.FC = () => {
         };
     }, [hasStarted, isCameraSleeping, onResults]);
 
-    // --- LÓGICA DE BÚSQUEDA (RESTAURADA) ---
+    // ==========================================
+    // LÓGICA DE BÚSQUEDA Y SELECCIÓN
+    // ==========================================
     const handleSearchSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!searchQuery) return;
 
+        // 1. Buscar en librería existente
         const existing = MOLECULE_LIBRARY.find(m => m.name.toLowerCase() === searchQuery.toLowerCase() || m.formula.toLowerCase() === searchQuery.toLowerCase());
         if (existing) {
             setActiveMolecule(existing);
@@ -233,6 +255,7 @@ const App: React.FC = () => {
             return;
         }
 
+        // 2. Si no existe, intentar generar elemento básico
         const lowerQuery = searchQuery.toLowerCase();
         const elementSymbol = ELEMENT_LIBRARY[lowerQuery] || (ATOM_COLORS[searchQuery.charAt(0).toUpperCase() + searchQuery.slice(1)] ? searchQuery : null);
 
@@ -263,7 +286,9 @@ const App: React.FC = () => {
         </button>
     );
 
-    // --- RENDER ---
+    // ==========================================
+    // RENDERIZADO
+    // ==========================================
 
     // 1. PANTALLA DE BIENVENIDA
     if (!hasStarted) {
@@ -303,7 +328,7 @@ const App: React.FC = () => {
                 />
             </div>
 
-            {/* 2. TUTORIAL OVERLAY (Se desvanece al detectar mano) */}
+            {/* 2. OVERLAY DE TUTORIAL (Desaparece al detectar mano) */}
             <div className={`absolute inset-0 flex flex-col items-center justify-center z-20 pointer-events-none transition-opacity duration-1000 ${tutorialDismissed ? 'opacity-0' : 'opacity-100'}`}>
                 <div className="bg-black/40 backdrop-blur-md p-8 rounded-3xl border border-white/10 flex flex-col items-center animate-pulse">
                     <svg className="w-24 h-24 text-white/80 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
@@ -314,10 +339,10 @@ const App: React.FC = () => {
                 </div>
             </div>
 
-            {/* 3. INTERFAZ COMPLETA (Solo visible tras el tutorial) */}
+            {/* 3. INTERFAZ PRINCIPAL (Visible tras tutorial) */}
             {tutorialDismissed && (
                 <>
-                    {/* BOTÓN MODO DESCANSO */}
+                    {/* BOTONES FLOTANTES: MODO DESCANSO Y UI */}
                     <button
                         onClick={() => setIsCameraSleeping(!isCameraSleeping)}
                         className="absolute top-4 right-16 z-50 p-2 bg-black/40 backdrop-blur rounded-full hover:bg-white/20 transition-colors border border-white/10"
@@ -326,7 +351,6 @@ const App: React.FC = () => {
                         <span className="text-xl">{isCameraSleeping ? '🌙' : '📷'}</span>
                     </button>
 
-                    {/* BOTÓN TOGGLE UI */}
                     <button
                         onClick={() => setUiVisible(!uiVisible)}
                         className="absolute top-4 right-4 z-50 p-2 bg-black/40 backdrop-blur rounded-full hover:bg-white/20 transition-colors border border-white/10"
@@ -335,7 +359,7 @@ const App: React.FC = () => {
                         <span className="text-xl">{uiVisible ? '👁️' : '🕶️'}</span>
                     </button>
 
-                    {/* NOTAS PRESENTACIÓN (Modo Oculto) */}
+                    {/* VISUALIZADOR DE NOTAS (Solo en modo inmersivo) */}
                     {!uiVisible && pinNotes && userNotes.length > 0 && (
                         <div className="absolute bottom-10 left-1/2 transform -translate-x-1/2 z-40 w-full max-w-3xl px-6 pointer-events-none">
                             <div className="bg-black/70 backdrop-blur-md border border-white/20 rounded-2xl p-6 shadow-2xl text-center">
@@ -346,7 +370,7 @@ const App: React.FC = () => {
                         </div>
                     )}
 
-                    {/* BARRA SUPERIOR: Buscador y Título */}
+                    {/* BARRA SUPERIOR: INFORMACIÓN Y BÚSQUEDA */}
                     {showTopBar && (
                         <div className={`absolute top-0 left-0 w-full p-4 z-30 flex justify-between items-start bg-gradient-to-b from-black/80 to-transparent transition-transform duration-500 ${uiVisible ? 'translate-y-0' : '-translate-y-full'}`}>
                             <div>
@@ -375,16 +399,15 @@ const App: React.FC = () => {
                         </div>
                     )}
 
-                    {/* PANEL CONFIGURACIÓN LATERAL */}
+                    {/* PANEL LATERAL DE CONFIGURACIÓN */}
                     <div className={`absolute top-24 left-0 z-40 transition-transform duration-300 ${uiVisible ? 'translate-x-0' : '-translate-x-full'}`}>
                         <div className="flex items-start">
                             {showConfig && (
                                 <div className="bg-black/90 backdrop-blur-md border-r border-t border-b border-white/20 p-4 w-72 rounded-r-xl shadow-2xl h-[70vh] flex flex-col gap-4 overflow-y-auto custom-scrollbar">
 
-                                    {/* SECCIÓN ANIMACIÓN */}
+                                    {/* Configuración de Animación */}
                                     <div>
                                         <h3 className="text-xs font-bold text-blue-300 mb-2 uppercase tracking-wide border-b border-white/10 pb-1">✨ Animación</h3>
-
                                         <label className="flex items-center justify-between mb-2 cursor-pointer group">
                                             <span className="text-sm text-gray-200">Rotación Automática</span>
                                             <input
@@ -394,7 +417,6 @@ const App: React.FC = () => {
                                                 className="w-4 h-4 rounded border-gray-500 text-blue-600 focus:ring-blue-500 bg-white/10"
                                             />
                                         </label>
-
                                         <div className={`transition-opacity duration-300 ${autoRotate ? 'opacity-100' : 'opacity-40 pointer-events-none'}`}>
                                             <div className="flex justify-between text-xs text-gray-400 mb-1">
                                                 <span>Velocidad</span>
@@ -411,7 +433,7 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    {/* SECCIÓN PERSONALIZACIÓN VISUAL */}
+                                    {/* Configuración de Visualización */}
                                     <div>
                                         <h3 className="text-xs font-bold text-purple-300 mb-2 uppercase tracking-wide border-b border-white/10 pb-1">👁️ Elementos en Pantalla</h3>
                                         <div className="space-y-2">
@@ -430,7 +452,7 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
 
-                                    {/* SECCIÓN NOTAS */}
+                                    {/* Block de Notas */}
                                     <div className="flex-1 flex flex-col">
                                         <h3 className="text-xs font-bold text-green-300 mb-2 uppercase tracking-wide border-b border-white/10 pb-1">📝 Notas</h3>
                                         <textarea
@@ -459,7 +481,7 @@ const App: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* ESTADO CENTRAL (Si se pierde la mano después del tutorial) */}
+                    {/* ALERTA DE MANO PERDIDA */}
                     {!isHandDetected && uiVisible && (
                         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center pointer-events-none z-20">
                             <div className="bg-black/60 backdrop-blur px-6 py-4 rounded-2xl border border-white/10 animate-fade-in">
@@ -469,11 +491,10 @@ const App: React.FC = () => {
                         </div>
                     )}
 
-                    {/* PANEL INFERIOR: Categorías y Selección */}
+                    {/* PANEL INFERIOR: SELECTOR DE MOLÉCULAS */}
                     {showBottomBar && (
                         <div className={`absolute bottom-0 left-0 w-full z-30 flex flex-col items-center pb-6 pt-12 bg-gradient-to-t from-black via-black/80 to-transparent transition-transform duration-500 ${uiVisible ? 'translate-y-0' : 'translate-y-full'}`}>
 
-                            {/* Pestañas de Categoría */}
                             <div className="flex space-x-3 mb-4">
                                 <CategoryButton id="primary" label="Primaria" />
                                 <CategoryButton id="secondary" label="Secundaria" />
@@ -481,7 +502,6 @@ const App: React.FC = () => {
                                 <CategoryButton id="all" label="Todas" />
                             </div>
 
-                            {/* Lista Horizontal con Scroll */}
                             <div className="flex space-x-3 overflow-x-auto w-full px-6 no-scrollbar pb-2 max-w-4xl mx-auto justify-start md:justify-center">
                                 {filteredMolecules.map((mol, idx) => (
                                     <button
@@ -497,7 +517,6 @@ const App: React.FC = () => {
                                 ))}
                             </div>
 
-                            {/* Descripción Toast */}
                             {showDescription && (
                                 <div className="mt-4 px-6 text-center max-w-lg text-sm text-gray-300 font-light italic">
                                     {activeMolecule.description}
@@ -508,7 +527,7 @@ const App: React.FC = () => {
                 </>
             )}
 
-            {/* 4. OVERLAY MODO DESCANSO (Fuera del tutorial o UI, siempre arriba) */}
+            {/* 4. OVERLAY DE MODO DESCANSO */}
             {isCameraSleeping && (
                 <div
                     onClick={() => setIsCameraSleeping(false)}

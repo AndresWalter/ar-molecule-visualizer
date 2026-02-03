@@ -1,6 +1,5 @@
 import React from 'react';
 import { Canvas } from '@react-three/fiber';
-import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { Environment } from '@react-three/drei';
 import MoleculeModel from './MoleculeModel';
 import { MoleculeStructure, HandOrientation } from '../types';
@@ -44,15 +43,7 @@ const ARCanvas: React.FC<ARCanvasProps> = ({
         rotationSpeed={rotationSpeed}
       />
 
-      {/* Post Processing Effects */}
-      <EffectComposer disableNormalPass>
-        <Bloom
-          luminanceThreshold={0.6} // Elements darker than this won't glow
-          mipmapBlur // Makes the glow softer
-          intensity={1.5} // Strength of the glow
-          radius={0.6}
-        />
-      </EffectComposer>
+
     </Canvas>
   );
 };
